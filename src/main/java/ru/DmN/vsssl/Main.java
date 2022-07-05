@@ -3,6 +3,7 @@ package ru.DmN.vsssl;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.LiteralMessage;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.fabricmc.api.ModInitializer;
@@ -21,10 +22,7 @@ import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.math.Vec3i;
 import net.minecraft.world.World;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
+import java.io.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
@@ -38,7 +36,7 @@ public class Main implements ModInitializer {
     @Override
     public void onInitialize() {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
-            dispatcher.register(literal("copyregion").then(argument("start", BlockPosArgumentType.blockPos()).then(argument("end", BlockPosArgumentType.blockPos()).executes(context -> {
+            dispatcher.register(literal("copyregion").then(argument("start", BlockPosArgumentType.blockPos()).then(argument("end", BlockPosArgumentType.blockPos()).then(argument("fname", StringArgumentType.greedyString()).executes(context -> {
                 RegionData save = new RegionData();
                 var pos0 =  BlockPosArgumentType.getBlockPos(context, "start");
                 var pos1 = BlockPosArgumentType.getBlockPos(context, "end");
@@ -71,13 +69,24 @@ public class Main implements ModInitializer {
                     oos.writeObject(save);
                     oos.close();
                     baos.close();
-                    Main.save = baos.toByteArray();
+                    try (var file = new FileOutputStream(context.getArgument("fname", String.class))) {
+                        file.write(baos.toByteArray());
+                    }
                 } catch (Exception e) {
                     throw new RuntimeException(e);
                 }
 
                 return 1;
-            }))));
+            })))));
+
+            dispatcher.register(literal("loadfile").then(argument("fname", StringArgumentType.greedyString()).executes(context -> {
+                try (var file = new FileInputStream(context.getArgument("fname", String.class))) {
+                    save = file.readAllBytes();
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+                return 1;
+            })));
 
             dispatcher.register(literal("pasteregion").then(argument("pos", BlockPosArgumentType.blockPos()).then(argument("rotation", IntegerArgumentType.integer()).executes(context -> processSave(context, (pos, state) -> context.getSource().getWorld().setBlockState(pos, state))))));
 
