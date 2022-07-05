@@ -3,9 +3,15 @@ package ru.DmN.vsssl;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.command.argument.BlockPosArgumentType;
+import net.minecraft.util.BlockRotation;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
+import net.minecraft.util.math.Vec3d;
 
-import java.io.*;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 
 import static net.minecraft.server.command.CommandManager.argument;
 import static net.minecraft.server.command.CommandManager.literal;
@@ -72,8 +78,13 @@ public class Main implements ModInitializer {
 
                 var world = context.getSource().getWorld();
                 var offset = BlockPosArgumentType.getBlockPos(context, "pos");
-                for (var data : save.blocks)
-                    world.setBlockState(offset.add(data.xOffset, data.yOffset, data.zOffset), data.getState());
+                var rotation = 2;
+                for (var data : save.blocks) {
+                    var pos = offset.add(data.xOffset, data.yOffset, data.zOffset);
+                    for (int i = 0; i < rotation; i++)
+                        pos = pos.rotate(BlockRotation.CLOCKWISE_90);
+                    world.setBlockState(pos, data.getState(rotation));
+                }
                 return 1;
             })));
         });
