@@ -1,5 +1,6 @@
 package ru.DmN.vsssl;
 
+import com.mojang.brigadier.LiteralMessage;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
@@ -8,22 +9,22 @@ import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
+import net.minecraft.client.font.TextVisitFactory;
 import net.minecraft.command.argument.BlockPosArgumentType;
 import net.minecraft.network.packet.s2c.play.BlockUpdateS2CPacket;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayNetworkHandler;
-import net.minecraft.text.LiteralTextContent;
-import net.minecraft.text.MutableText;
-import net.minecraft.text.Style;
-import net.minecraft.text.TextColor;
+import net.minecraft.text.*;
 import net.minecraft.util.BlockRotation;
 import net.minecraft.util.Formatting;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.world.World;
 
+import java.awt.*;
 import java.io.*;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 
 import static net.minecraft.server.command.CommandManager.argument;
 import static net.minecraft.server.command.CommandManager.literal;
@@ -51,9 +52,10 @@ public class Main implements ModInitializer {
                     do {
                         int k = zStart;
                         do {
-                            var state = world.getBlockState(new BlockPos(i, j, k));
+                            var pos = new BlockPos(i, j, k);
+                            var state = world.getBlockState(pos);
                             if (!state.isAir())
-                                save.blocks.add(new BlockData( i - xStart, j - yStart, k - zStart, state));
+                                save.blocks.add(new BlockData( i - xStart, j - yStart, k - zStart, state, world.getBlockEntity(pos)));
                             k++;
                         } while (k < zEnd);
                         j++;
@@ -67,7 +69,7 @@ public class Main implements ModInitializer {
                     oos.writeObject(save);
                     oos.close();
                     baos.close();
-                    try (var file = new FileOutputStream(context.getArgument("fname", String.class))) {
+                    try (var file = new FileOutputStream(context.getArgument("fname", String.class) + ".dsc")) {
                         file.write(baos.toByteArray());
                     }
                 } catch (Exception e) {
@@ -78,7 +80,7 @@ public class Main implements ModInitializer {
             })))));
 
             dispatcher.register(literal("loadfile").then(argument("fname", StringArgumentType.greedyString()).executes(context -> {
-                try (var file = new FileInputStream(context.getArgument("fname", String.class))) {
+                try (var file = new FileInputStream(context.getArgument("fname", String.class) + ".dsc")) {
                     try {
                         var bais = new ByteArrayInputStream(file.readAllBytes());
                         var ois = new ObjectInputStream(bais);
@@ -94,9 +96,15 @@ public class Main implements ModInitializer {
                 return 1;
             })));
 
-            dispatcher.register(literal("pasteregion").then(argument("pos", BlockPosArgumentType.blockPos()).then(argument("rotation", IntegerArgumentType.integer()).executes(context -> processSave(context, (pos, state) -> context.getSource().getWorld().setBlockState(pos, state))))));
+            dispatcher.register(literal("pasteregion").then(argument("pos", BlockPosArgumentType.blockPos()).then(argument("rotation", IntegerArgumentType.integer()).executes(context -> processSave(context, (pos, state, data) -> {
+                var world = context.getSource().getWorld();
+                world.setBlockState(pos, state);
+                var entity = data.getBlockEntity(pos, state);
+                if (entity != null)
+                    world.addBlockEntity(entity);
+            })))));
 
-            dispatcher.register(literal("preview").then(argument("pos", BlockPosArgumentType.blockPos()).then(argument("rotation", IntegerArgumentType.integer()).executes(context -> processSave(context, (pos, state) -> context.getSource().getPlayer().networkHandler.sendPacket(new BlockUpdateS2CPacket(pos, state)))))));
+            dispatcher.register(literal("preview").then(argument("pos", BlockPosArgumentType.blockPos()).then(argument("rotation", IntegerArgumentType.integer()).executes(context -> processSave(context, (pos, state, __) -> context.getSource().getPlayer().networkHandler.sendPacket(new BlockUpdateS2CPacket(pos, state)))))));
 
             dispatcher.register(literal("validate").then(argument("pos", BlockPosArgumentType.blockPos()).then(argument("rotation", IntegerArgumentType.integer()).executes(context -> {
                 var player = context.getSource().getPlayer();
@@ -159,7 +167,7 @@ public class Main implements ModInitializer {
 
     public static List<BlockPos> validate(CommandContext<ServerCommandSource> context) throws CommandSyntaxException {
         var invalidList = new ArrayList<BlockPos>();
-        processSave(context, (pos, state) -> {
+        processSave(context, (pos, state, __) -> {
             var s = context.getSource().getWorld().getBlockState(pos);
             if (s.isAir())
                 return;
@@ -183,13 +191,13 @@ public class Main implements ModInitializer {
             for (int i = 0; i < rotation; i++)
                 pos = pos.rotate(BlockRotation.COUNTERCLOCKWISE_90);
             pos = pos.add(offset);
-            action.process(pos, data.getState(rotation));
+            action.process(pos, data.getState(rotation), data);
         }
         return 1;
     }
 
     @FunctionalInterface
     interface ProcessAction {
-        void process(BlockPos pos, BlockState state);
+        void process(BlockPos pos, BlockState state, BlockData data);
     }
 }
